@@ -115,7 +115,7 @@ public class ProductoController {
     }
 
     private void guardarProducto() {
-        String codigo1 = carritoAnadirView.getTxtCodigo().getText();
+        String codigo1 = productoAnadirView.getTxtCodigo().getText();
         if (codigo1.equals("")) {
             carritoAnadirView.mostrarMensaje("producto.info.noproducto");
             return;
