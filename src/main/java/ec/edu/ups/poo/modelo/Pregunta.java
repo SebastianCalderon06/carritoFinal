@@ -1,6 +1,9 @@
 package ec.edu.ups.poo.modelo;
 
-public class Pregunta {
+import java.io.Serializable;
+
+public class Pregunta implements Serializable {
+    private static final long serialVersionUID = 1L;
     private String pregunta;
     private int id;
 

@@ -1,10 +1,13 @@
 package ec.edu.ups.poo.modelo;
 
+import java.io.Serializable;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 
-public class Usuario {
+public class Usuario implements Serializable {
+    private static final long serialVersionUID = 1L;
+
     private String username;
     private String password;
     private Rol rol;
@@ -28,6 +31,8 @@ public class Usuario {
         this.telefono = telefono;
         this.edad = edad;
     }
+
+    // ... TODOS TUS GETTERS Y SETTERS EXISTENTES
 
     public String getUsername() {
         return username;

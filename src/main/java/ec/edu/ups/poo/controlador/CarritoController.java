@@ -4,10 +4,12 @@ import ec.edu.ups.poo.dao.CarritoDAO;
 import ec.edu.ups.poo.dao.ProductoDAO;
 import ec.edu.ups.poo.modelo.*;
 import ec.edu.ups.poo.util.Idioma;
+import ec.edu.ups.poo.util.Validador;
 import ec.edu.ups.poo.view.*;
 
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
+import java.util.ArrayList;
 import java.util.List;
 
 public class CarritoController {
@@ -22,8 +24,7 @@ public class CarritoController {
     private final CarritoEliminarView carritoEliminarView;
 
     private Carrito carritoActual;
-    private Carrito carritoParaModificar;
-    private Carrito carritoParaEliminar;
+
     private List<Carrito> carritosUltimosMostradosBuscar;
     private List<Carrito> carritosUltimosMostradosModificar;
 
@@ -53,21 +54,13 @@ public class CarritoController {
         configurarEventosEliminar();
     }
 
-    private boolean esNumeroEntero(String texto) {
-        if (texto == null || texto.trim().isEmpty()) return false;
-        try {
-            Integer.parseInt(texto);
-            return true;
-        } catch (NumberFormatException e) {
-            return false;
-        }
-    }
 
     private boolean tienePermiso(Carrito carrito) {
         if (usuarioAutenticado.getRol() == Rol.ADMINISTRADOR) {
             return true;
         }
-        return carrito.getUsuario().equals(usuarioAutenticado);
+
+        return carrito.getUsuario() != null && carrito.getUsuario().equals(usuarioAutenticado);
     }
 
     private void iniciarNuevoCarrito() {
@@ -81,39 +74,61 @@ public class CarritoController {
         carritoAnadirView.getBtnLimpiar().addActionListener(e -> limpiarCarritoActual());
     }
 
+
+
+    /**
+     * A\u00f1ade un producto al carrito actual.
+     * Valida el c\u00f3digo del producto y la cantidad.
+     */
     private void anadirProducto() {
         String codigoStr = carritoAnadirView.getTxtCodigo().getText();
-        if (!esNumeroEntero(codigoStr)) {
-            carritoAnadirView.mostrarMensaje("carrito.controller.msj.numentero");
-            return;
-        }
-        int codigo = Integer.parseInt(codigoStr);
-        Producto producto = productoDAO.buscarPorCodigo(codigo);
-        if (producto == null) {
-            carritoAnadirView.mostrarMensaje("carrito.controller.msj.pnoe");
-            return;
-        }
 
         Object cantidadObj = carritoAnadirView.getCbxCanridad().getSelectedItem();
-        if (cantidadObj == null || !esNumeroEntero(cantidadObj.toString())) {
-            carritoAnadirView.mostrarMensaje(Idioma.get("carrito.controller.msj.cantsele"));
-            return;
-        }
-        int cantidad = Integer.parseInt(cantidadObj.toString());
+        String cantidadObjStr = (cantidadObj != null) ? cantidadObj.toString() : "";
 
-        carritoActual.agregarProducto(producto, cantidad);
-        actualizarVistaAnadir();
-        limpiarCamposProductoAnadir();
+        try {
+
+            int codigo = Validador.validarEntero(codigoStr, "carrito.lbl.codigo");
+            int cantidad = Validador.validarEntero(cantidadObjStr, "carrito.lbl.cantidad");
+
+
+            if (cantidad <= 0) {
+                carritoAnadirView.mostrarMensaje(Idioma.get("carrito.controller.msj.cantpositiva"));
+                return;
+            }
+
+            Producto producto = productoDAO.buscarPorCodigo(codigo);
+            if (producto == null) {
+                carritoAnadirView.mostrarMensaje(Idioma.get("carrito.controller.msj.pnoe"));
+                return;
+            }
+
+            carritoActual.agregarProducto(producto, cantidad);
+            actualizarVistaAnadir();
+            limpiarCamposProductoAnadir();
+        } catch (IllegalArgumentException ex) {
+
+            carritoAnadirView.mostrarMensaje(ex.getMessage());
+        } catch (Exception ex) {
+
+            carritoAnadirView.mostrarError("Error inesperado al a\u00f1adir producto al carrito: " + ex.getMessage());
+            ex.printStackTrace();
+        }
     }
 
     private void guardarCarrito() {
         if (carritoActual.estaVacio()) {
-            carritoAnadirView.mostrarMensaje("carrito.controller.msj.carvac");
+            carritoAnadirView.mostrarMensaje("carrito.controller.msj.carvac"); // Cart is empty
             return;
         }
-        carritoDAO.crear(carritoActual);
-        carritoAnadirView.mostrarMensajeConParametros("carrito.anadir.msj.guardado", carritoActual.getCodigo());
-        limpiarCarritoActual();
+        try {
+            carritoDAO.crear(carritoActual);
+            carritoAnadirView.mostrarMensajeConParametros("carrito.anadir.msj.guardado", carritoActual.getCodigo());
+            limpiarCarritoActual();
+        } catch (Exception ex) {
+            carritoAnadirView.mostrarError("Error inesperado al guardar carrito: " + ex.getMessage());
+            ex.printStackTrace();
+        }
     }
 
     private void limpiarCarritoActual() {
@@ -128,7 +143,7 @@ public class CarritoController {
         for (ItemCarrito item : carritoActual.obtenerItems()) {
             modelo.addRow(new Object[]{
                     item.getProducto().getCodigo(), item.getProducto().getNombre(),
-                    item.getProducto().getPrecio(), item.getCantidad(), item.getSubtotal()
+                    String.format("%.2f", item.getProducto().getPrecio()), item.getCantidad(), String.format("%.2f", item.getSubtotal())
             });
         }
         carritoAnadirView.getTxtSubtotal().setText(String.format("%.2f", carritoActual.calcularSubtotal()));
@@ -166,28 +181,48 @@ public class CarritoController {
     public void mostrarCarritosUsuarioParaBuscar() {
         List<Carrito> carritos = carritoDAO.listarPorUsuario(usuarioAutenticado);
         carritoBuscarView.cargarCarritosUsuario(carritos);
-        this.carritosUltimosMostradosBuscar = carritos;
     }
 
+    /**
+     * Busca un carrito espec\u00edfico para su visualizaci\u00f3n.
+     * Valida que el c\u00f3digo sea num\u00e9rico y verifica permisos.
+     */
     private void buscarCarritoParaVer() {
         String codigoStr = carritoBuscarView.getTxtBuscarCarrito().getText().trim();
-        if (!esNumeroEntero(codigoStr)) {
-            carritoBuscarView.mostrarMensaje(Idioma.get("carrito.controller.msj.numin"));
+        try {
+
+            int codigo = Validador.validarEntero(codigoStr, "carrito.buscar.lbl.codigo");
+
+            Carrito carrito = carritoDAO.buscar(codigo);
+            if (carrito == null || !tienePermiso(carrito)) {
+                carritoBuscarView.mostrarMensaje(Idioma.get("carrito.controller.msj.noper"));
+                carritoBuscarView.mostrarCarrito(null);
+                return;
+            }
+            carritoBuscarView.mostrarCarrito(carrito);
+        } catch (IllegalArgumentException ex) {
+            carritoBuscarView.mostrarMensaje(ex.getMessage());
             carritoBuscarView.mostrarCarrito(null);
-            return;
+        } catch (Exception ex) {
+
+            JOptionPane.showMessageDialog(carritoBuscarView,
+                    Idioma.get("main.error") + ": " + Idioma.get("carrito.controller.msj.errorinesperado") + ex.getMessage(),
+                    Idioma.get("main.error"),
+                    JOptionPane.ERROR_MESSAGE);
+            ex.printStackTrace();
         }
-        int codigo = Integer.parseInt(codigoStr);
-        Carrito carrito = carritoDAO.buscar(codigo);
-        if (carrito == null || !tienePermiso(carrito)) {
-            carritoBuscarView.mostrarMensaje(Idioma.get("carrito.controller.msj.noper"));
-            carritoBuscarView.mostrarCarrito(null);
-            return;
-        }
-        carritoBuscarView.mostrarCarrito(carrito);
     }
 
     private void listarCarritosBuscar() {
-        mostrarCarritosUsuarioParaBuscar();
+
+        List<Carrito> carritos;
+        if (usuarioAutenticado.getRol() == Rol.ADMINISTRADOR) {
+            carritos = carritoDAO.listarTodos();
+        } else {
+            carritos = carritoDAO.listarPorUsuario(usuarioAutenticado);
+        }
+        carritoBuscarView.cargarCarritosUsuario(carritos);
+
     }
 
     private void configurarEventosEliminar() {
@@ -196,7 +231,13 @@ public class CarritoController {
     }
 
     public void mostrarCarritosUsuarioParaEliminar() {
-        List<Carrito> carritos = carritoDAO.listarPorUsuario(usuarioAutenticado);
+
+        List<Carrito> carritos;
+        if (usuarioAutenticado.getRol() == Rol.ADMINISTRADOR) {
+            carritos = carritoDAO.listarTodos();
+        } else {
+            carritos = carritoDAO.listarPorUsuario(usuarioAutenticado);
+        }
         carritoEliminarView.cargarCarritosUsuario(carritos);
     }
 
@@ -206,12 +247,22 @@ public class CarritoController {
             carritoEliminarView.mostrarMensaje(Idioma.get("carrito.controller.msj.selecar"));
             return;
         }
+
         boolean confirmar = carritoEliminarView.confirmarAccion("carrito.controller.msj.estaseguro");
         if (!confirmar) return;
 
-        carritoDAO.eliminar(carrito.getCodigo());
-        carritoEliminarView.mostrarMensaje("carrito.controller.msj.eliminado");
-        mostrarCarritosUsuarioParaEliminar();
+        try {
+            carritoDAO.eliminar(carrito.getCodigo());
+            carritoEliminarView.mostrarMensaje("carrito.controller.msj.eliminado");
+            mostrarCarritosUsuarioParaEliminar();
+        } catch (Exception ex) {
+
+            JOptionPane.showMessageDialog(carritoEliminarView,
+                    Idioma.get("main.error") + ": " + Idioma.get("carrito.controller.msj.errorinesperado") + ex.getMessage(),
+                    Idioma.get("main.error"),
+                    JOptionPane.ERROR_MESSAGE);
+            ex.printStackTrace();
+        }
     }
 
     private void configurarEventosModificar() {
@@ -219,29 +270,43 @@ public class CarritoController {
         carritoModificarView.getBtnModificar().addActionListener(e -> guardarCambiosCarrito());
     }
 
+    /**
+     * Busca un carrito espec\u00edfico para su modificaci\u00f3n.
+     * Valida que el c\u00f3digo sea num\u00e9rico y verifica permisos.
+     */
     private void buscarCarritoParaModificar() {
         String codigoStr = carritoModificarView.getTxtCodigo().getText().trim();
-        if (!esNumeroEntero(codigoStr)) {
-            carritoModificarView.mostrarError(Idioma.get("carrito.controller.msj.numin"));
+        try {
+            // Validate the cart code
+            int codigo = Validador.validarEntero(codigoStr, "carrito.modificar.lbl.codigo");
+
+            Carrito carrito = carritoDAO.buscar(codigo);
+            if (carrito == null || !tienePermiso(carrito)) {
+                carritoModificarView.mostrarError(Idioma.get("carrito.controller.msj.noper"));
+                carritoModificarView.cargarCarrito(null);
+                return;
+            }
+            carritoModificarView.cargarCarrito(carrito);
+        } catch (IllegalArgumentException ex) {
+            carritoModificarView.mostrarError(ex.getMessage());
             carritoModificarView.cargarCarrito(null);
-            return;
+        } catch (Exception ex) {
+            carritoModificarView.mostrarError("Error inesperado al buscar carrito para modificar: " + ex.getMessage());
+            ex.printStackTrace();
         }
-        int codigo = Integer.parseInt(codigoStr);
-        Carrito carrito = carritoDAO.buscar(codigo);
-        if (carrito == null || !tienePermiso(carrito)) {
-            carritoModificarView.mostrarError("carrito.controller.msj.noper");
-            carritoModificarView.cargarCarrito(null);
-            return;
-        }
-        carritoModificarView.cargarCarrito(carrito);
     }
 
+    /**
+     * Guarda los cambios en un carrito, permitiendo modificar la cantidad total de productos.
+     * Valida que la nueva cantidad sea num\u00e9rica y no negativa.
+     */
     private void guardarCambiosCarrito() {
         int fila = carritoModificarView.getTblModificar().getSelectedRow();
         if (fila == -1) {
-            carritoModificarView.mostrarError(Idioma.get("carrito.controller.msj.modificarno"));
+            carritoModificarView.mostrarError(Idioma.get("carrito.controller.msj.modificarno")); // No cart selected
             return;
         }
+
         int codigoCarrito = (int) carritoModificarView.getTblModificar().getValueAt(fila, 0);
         Carrito carrito = carritoDAO.buscar(codigoCarrito);
         if (carrito == null) {
@@ -249,19 +314,20 @@ public class CarritoController {
             return;
         }
 
+
+        String nuevaCantidadTotalStr = carritoModificarView.getTblModificar().getValueAt(fila, 3).toString();
         int nuevaCantidadTotal;
+
         try {
-            nuevaCantidadTotal = Integer.parseInt(carritoModificarView.getTblModificar().getValueAt(fila, 3).toString());
-        } catch (NumberFormatException e) {
-            carritoModificarView.mostrarError(Idioma.get("carrito.controller.msj.invalida"));
+            nuevaCantidadTotal = Validador.validarEntero(nuevaCantidadTotalStr, "carrito.modificar.tbl.canttotal");
+            if (nuevaCantidadTotal < 0) {
+                throw new IllegalArgumentException(Idioma.get("carrito.controller.msj.cantidadnegativa"));
+            }
+        } catch (IllegalArgumentException e) {
+            carritoModificarView.mostrarError(e.getMessage());
             return;
         }
 
-        int cantidadOriginal = carrito.obtenerItems().stream().mapToInt(ItemCarrito::getCantidad).sum();
-        if (cantidadOriginal == 0) {
-            carritoModificarView.mostrarError(Idioma.get("carrito.controller.msj.noproductos"));
-            return;
-        }
 
         int confirm = JOptionPane.showConfirmDialog(
                 carritoModificarView,
@@ -274,30 +340,54 @@ public class CarritoController {
         }
 
         List<ItemCarrito> items = carrito.obtenerItems();
-        int cantidadAcumulada = 0;
-        int totalItems = items.size();
+        int cantidadOriginalTotal = items.stream().mapToInt(ItemCarrito::getCantidad).sum();
 
-        for (int i = 0; i < totalItems; i++) {
-            ItemCarrito item = items.get(i);
-            int cantidadAntigua = item.getCantidad();
-            int nuevaCantidad;
-            if (i < totalItems - 1) {
-                nuevaCantidad = (int) Math.round((cantidadAntigua * 1.0 / cantidadOriginal) * nuevaCantidadTotal);
-                cantidadAcumulada += nuevaCantidad;
-            } else {
-                nuevaCantidad = nuevaCantidadTotal - cantidadAcumulada;
-            }
-            item.setCantidad(nuevaCantidad);
+        if (cantidadOriginalTotal == 0 && nuevaCantidadTotal > 0) {
+            carritoModificarView.mostrarError(Idioma.get("carrito.controller.msj.noproductos")); //
+            return;
         }
 
-        carritoDAO.actualizar(carrito);
-        carritoModificarView.mostrarMensaje("carrito.controller.msj.exitoso");
-        mostrarCarritosUsuarioParaModificar();
+        if (nuevaCantidadTotal == 0) {
+            carrito.setItems(new ArrayList<>());
+        } else if (cantidadOriginalTotal > 0) {
+            int cantidadAcumulada = 0;
+            for (int i = 0; i < items.size(); i++) {
+                ItemCarrito item = items.get(i);
+                int cantidadAntigua = item.getCantidad();
+                int nuevaCantidad;
+
+
+                if (i < items.size() - 1) {
+                    nuevaCantidad = (int) Math.round((cantidadAntigua * 1.0 / cantidadOriginalTotal) * nuevaCantidadTotal);
+                    if (nuevaCantidad < 0) nuevaCantidad = 0;
+                    cantidadAcumulada += nuevaCantidad;
+                } else {
+                    nuevaCantidad = nuevaCantidadTotal - cantidadAcumulada;
+                    if (nuevaCantidad < 0) nuevaCantidad = 0;
+                }
+                item.setCantidad(nuevaCantidad);
+            }
+
+            carrito.getItems().removeIf(item -> item.getCantidad() <= 0);
+        }
+
+        try {
+            carritoDAO.actualizar(carrito);
+            carritoModificarView.mostrarMensaje("carrito.controller.msj.exitoso");
+            mostrarCarritosUsuarioParaModificar();
+        } catch (Exception ex) {
+            carritoModificarView.mostrarError("Error inesperado al guardar cambios en el carrito: " + ex.getMessage());
+            ex.printStackTrace();
+        }
     }
 
     public void mostrarCarritosUsuarioParaModificar() {
-        List<Carrito> carritos = carritoDAO.listarPorUsuario(usuarioAutenticado);
+        List<Carrito> carritos;
+        if (usuarioAutenticado.getRol() == Rol.ADMINISTRADOR) {
+            carritos = carritoDAO.listarTodos();
+        } else {
+            carritos = carritoDAO.listarPorUsuario(usuarioAutenticado);
+        }
         carritoModificarView.cargarCarritosUsuario(carritos);
-        this.carritosUltimosMostradosModificar = carritos;
     }
 }

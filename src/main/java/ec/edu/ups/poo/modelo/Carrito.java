@@ -3,8 +3,10 @@ package ec.edu.ups.poo.modelo;
 import java.util.ArrayList;
 import java.util.GregorianCalendar;
 import java.util.List;
+import java.io.Serializable;
 
-public class Carrito {
+public class Carrito implements Serializable {
+    private static final long serialVersionUID = 1L;
     private Usuario usuario;
     private List<ItemCarrito> items;
     private GregorianCalendar fechaCreacion;
