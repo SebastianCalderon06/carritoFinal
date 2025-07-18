@@ -40,12 +40,8 @@ public class CarritoDAOArchivoBinario implements CarritoDAO {
         }
         int maxCodigo = 0;
         try (ObjectInputStream ois = new ObjectInputStream(new FileInputStream(rutaArchivo))) {
-            // Al deserializar, los objetos Producto y Usuario dentro de Carrito
-            // deben reconstruirse usando los DAOs si solo se guardó una referencia (e.g., username/id).
-            // Si los objetos completos se serializaron (implementando Serializable), Java los reconstruye.
-            // Para este ejemplo, asumimos que Carrito y ItemCarrito contienen los objetos completos.
+
             carritos = (List<Carrito>) ois.readObject();
-            // Recalcular nextCodigo si se cargan carritos
             for (Carrito c : carritos) {
                 if (c.getCodigo() > maxCodigo) {
                     maxCodigo = c.getCodigo();
